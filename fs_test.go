@@ -3,61 +3,61 @@ package fs
 import (
 	"io"
 	"os"
-	"sort"
 	"testing"
 
-	"github.com/PlakarKorp/plakar/appcontext"
+	"github.com/PlakarKorp/kloset/kcontext"
+	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/kloset/snapshot/exporter"
 	"github.com/stretchr/testify/require"
 )
 
-func TestFSImporter(t *testing.T) {
-	tmpImportDir, err := os.MkdirTemp("/tmp", "tmp_import*")
+func TestExporter(t *testing.T) {
+	tmpExportDir, err := os.MkdirTemp("/tmp", "tmp_export*")
+	require.NoError(t, err)
+	tmpOriginDir, err := os.MkdirTemp("/tmp", "tmp_origin*")
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		os.RemoveAll(tmpImportDir)
+		os.RemoveAll(tmpExportDir)
+		os.RemoveAll(tmpOriginDir)
 	})
 
-	err = os.WriteFile(tmpImportDir+"/dummy.txt", []byte("test importer fs"), 0644)
+	var exporterInstance exporter.Exporter
+	ctx := kcontext.NewKContext()
+
+	// Register the fs backen
+	exporterInstance, err = exporter.NewExporter(ctx, map[string]string{"location": tmpExportDir})
+	require.NoError(t, err)
+	defer exporterInstance.Close(ctx)
+
+	root, err := exporterInstance.Root(ctx)
+	require.NoError(t, err)
+	require.Equal(t, tmpExportDir, root)
+
+	data := []byte("test exporter fs")
+	datalen := int64(len(data))
+
+	err = os.WriteFile(tmpOriginDir+"/dummy.txt", data, 0644)
 	require.NoError(t, err)
 
-	ctx := appcontext.NewAppContext()
-
-	importer, err := NewFSImporter(ctx, ctx.ImporterOpts(), "fs", map[string]string{"location": tmpImportDir})
+	fpOrigin, err := os.Open(tmpOriginDir + "/dummy.txt")
 	require.NoError(t, err)
-	require.NotNil(t, importer)
+	defer fpOrigin.Close()
 
-	require.Equal(t, ctx.Hostname, importer.Origin())
-
-	root := importer.Root()
+	err = exporterInstance.StoreFile(ctx, tmpExportDir+"/dummy.txt", fpOrigin, datalen)
 	require.NoError(t, err)
-	require.Equal(t, tmpImportDir, root)
 
-	typ := importer.Type()
-	require.Equal(t, "fs", typ)
-
-	scanChan, err := importer.Scan()
+	fpExported, err := os.Open(tmpExportDir + "/dummy.txt")
 	require.NoError(t, err)
-	require.NotNil(t, scanChan)
+	defer fpExported.Close()
 
-	paths := []string{}
-	for record := range scanChan {
-		require.Nil(t, record.Error)
-		if record.Record.IsXattr {
-			continue
-		}
-		paths = append(paths, record.Record.Pathname)
+	newContent, err := io.ReadAll(fpExported)
+	require.NoError(t, err)
 
-		if record.Record.FileInfo.Mode().IsRegular() {
-			content, err := io.ReadAll(record.Record.Reader)
-			require.NoError(t, err)
-			require.Equal(t, content, []byte("test importer fs"))
-			record.Record.Reader.Close()
-		}
-	}
-	expected := []string{"/", "/tmp", tmpImportDir, tmpImportDir + "/dummy.txt"}
-	sort.Strings(paths)
-	require.Equal(t, expected, paths)
+	require.Equal(t, string(data), string(newContent))
 
-	err = importer.Close()
+	err = exporterInstance.CreateDirectory(ctx, tmpExportDir+"/subdir")
+	require.NoError(t, err)
+
+	err = exporterInstance.SetPermissions(ctx, tmpExportDir+"/dummy.txt", &objects.FileInfo{Lmode: 0644})
 	require.NoError(t, err)
 }
