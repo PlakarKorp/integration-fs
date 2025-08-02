@@ -1,6 +1,6 @@
 //go:build !windows
 
-package fs
+package importer
 
 import (
 	"io/fs"

@@ -1,6 +1,11 @@
-GO = go
+GO=go
 
-all:
-	${GO} build -v -o fs-importer ./importer/
-	${GO} build -v -o fs-exporter ./exporter/
-	${GO} build -v -o fs-store    ./store/
+all: build
+
+build:
+	${GO} build -v -o fs-importer ./plugin/importer
+	${GO} build -v -o fs-exporter ./plugin/exporter
+	${GO} build -v -o fs-storage ./plugin/storage
+
+clean:
+	rm -f fs-importer fs-exporter fs-storage fs-*.ptar

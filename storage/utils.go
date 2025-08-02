@@ -14,73 +14,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-package fs
+package storage
 
 import (
-	"bytes"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 )
-
-type ClosingFileReader struct {
-	reader     io.Reader
-	file       *os.File
-	fileClosed bool
-}
-
-func (cr *ClosingFileReader) Read(p []byte) (int, error) {
-	if cr.fileClosed {
-		return 0, io.EOF
-	}
-
-	n, err := cr.reader.Read(p)
-	if err == io.EOF {
-		// Close the file when EOF is reached
-		closeErr := cr.file.Close()
-		cr.fileClosed = true
-		if closeErr != nil {
-			return n, fmt.Errorf("error closing file: %w", closeErr)
-		}
-	}
-	return n, err
-}
-
-func ClosingReader(file *os.File) (io.Reader, error) {
-	return &ClosingFileReader{
-		reader:     file,
-		file:       file,
-		fileClosed: false,
-	}, nil
-}
-
-func ClosingLimitedReaderFromOffset(file *os.File, offset, length int64) (io.Reader, error) {
-	if _, err := file.Seek(offset, io.SeekStart); err != nil {
-		return nil, err
-	}
-
-	st, err := file.Stat()
-	if err != nil {
-		return nil, err
-	}
-
-	if st.Size() == 0 {
-		return bytes.NewBuffer([]byte{}), nil
-	}
-
-	if length > (st.Size() - offset) {
-		return nil, fmt.Errorf("invalid length")
-	}
-
-	return &ClosingFileReader{
-		reader: &io.LimitedReader{
-			R: file,
-			N: length,
-		},
-		file: file,
-	}, nil
-}
 
 func WriteToFileAtomic(filename string, rd io.Reader) (int64, error) {
 	return WriteToFileAtomicTempDir(filename, rd, filepath.Dir(filename))

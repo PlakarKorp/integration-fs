@@ -14,7 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-package fs
+package storage
 
 import (
 	"encoding/hex"
@@ -131,6 +131,7 @@ func (buckets *Buckets) GetBlob(mac objects.MAC, offset uint64, length uint32) (
 	if err != nil {
 		return nil, err
 	}
+
 	return reading.NewSectionReadCloser(fp, int64(offset), int64(length)), nil
 }
 

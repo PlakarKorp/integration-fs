@@ -1,8 +1,8 @@
 package main
 
 import (
-	"github.com/PlakarKorp/go-kloset-sdk"
-	"github.com/PlakarKorp/integration-fs"
+	sdk "github.com/PlakarKorp/go-kloset-sdk"
+	fs "github.com/PlakarKorp/integration-fs/exporter"
 )
 
 func main() {
