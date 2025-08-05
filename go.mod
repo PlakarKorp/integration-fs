@@ -3,8 +3,8 @@ module github.com/PlakarKorp/integration-fs
 go 1.23.4
 
 require (
-	github.com/PlakarKorp/go-kloset-sdk v0.1.0-devel.3dcd81a3
-	github.com/PlakarKorp/kloset v1.0.1-beta.4
+	github.com/PlakarKorp/go-kloset-sdk v1.0.0-beta.1
+	github.com/PlakarKorp/kloset v1.0.1-beta.5
 	github.com/pkg/xattr v0.4.12
 )
 
