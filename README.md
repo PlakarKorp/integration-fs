@@ -12,46 +12,26 @@ This integration allows:
 
 ## Installation
 
-If a pre-built package exists for your system and architecture,
-you can simply install it using:
-
-```sh
-$ plakar pkg add fis
-```
-
-Otherwise,
-you can first build it:
-
-```sh
-$ plakar pkg build fis
-```
-
-This should produce `fis-vX.Y.Z.ptar` that can be installed with:
-
-```bash
-$ plakar pkg add ./fis-v0.1.0.ptar
-```
+**This integration is included in the default Plakar installation. No additional steps are required to enable it.**
 
 ## Configuration
 
 The configuration parameters are as follows:
 
 - `location` (required): The path to the directory or mount point (e.g., `/home/user/data`)
+> **Note:** With the FS integration, you can specify file or directory paths directly in your commands, no need for a protocol prefix like `fs://`. Local filesystem paths are handled automatically.
 
 ## Example Usage
 
 ```bash
-# configure an FS source
-$ plakar source add myFSsrc fis:///home/user/documents
+# backup a directory to a Kloset repository
+$ plakar at /tmp/store backup /tmp/example_directory
 
-# backup the source
-$ plakar backup @myFSsrc
+# restore a snapshot to a local directory
+$ plakar at /tmp/store restore -to /tmp/restore_directory <snapid>
 
-# configure an FS destination
-$ plakar destination add myFSdst fis:///mnt/backup
-
-# restore the snapshot to the destination
-$ plakar restore -to @myFSdst <snapid>
+# create a new Kloset store
+$ plakar at /tmp/store create
 ```
 
 [plakar]: https://github.com/PlakarKorp/plakar
