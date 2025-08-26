@@ -13,7 +13,7 @@ connectors:
   license: ISC
   protocols: [fis]
 - type: storage
-  executable: fs-store
+  executable: fs-storage
   homepage: https://github.com/PlakarKorp/integration-fs
   license: ISC
   protocols: [fis]
