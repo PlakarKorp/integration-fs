@@ -50,7 +50,7 @@ func init() {
 
 func NewFSImporter(appCtx context.Context, opts *importer.Options, name string, config map[string]string) (importer.Importer, error) {
 	location := config["location"]
-	rootDir := strings.TrimPrefix(location, "fs://")
+	rootDir := strings.TrimPrefix(location, name+"://")
 
 	if !filepath.IsAbs(rootDir) {
 		return nil, fmt.Errorf("not an absolute path %s", location)
