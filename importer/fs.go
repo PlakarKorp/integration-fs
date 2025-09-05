@@ -162,7 +162,7 @@ func (p *FSImporter) lookupIDs(uid, gid uint64) (uname, gname string) {
 
 			p.mu.RUnlock()
 			p.mu.Lock()
-			p.gidToName[gid] = name
+			p.gidToName[gid] = gname
 			p.mu.Unlock()
 			p.mu.RLock()
 		}
