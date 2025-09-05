@@ -46,11 +46,11 @@ func (p *FSExporter) Root(ctx context.Context) (string, error) {
 }
 
 func (p *FSExporter) CreateDirectory(ctx context.Context, pathname string) error {
-	return os.MkdirAll(pathname, 0700)
+	return os.MkdirAll(pathname, 0750)
 }
 
 func (p *FSExporter) StoreFile(ctx context.Context, pathname string, fp io.Reader, size int64) error {
-	f, err := os.Create(pathname)
+	f, err := os.OpenFile(pathname, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0640)
 	if err != nil {
 		return err
 	}
