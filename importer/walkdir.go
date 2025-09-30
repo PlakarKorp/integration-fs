@@ -55,12 +55,19 @@ func (f *FSImporter) walkDir_worker(ctx context.Context, jobs <-chan string, res
 			continue
 		}
 
+		isSymlink := info.Mode()&os.ModeSymlink != 0
+
 		// fixup the rootdir if it happened to be a file
 		if !info.IsDir() && path == f.rootDir {
 			f.rootDir = filepath.Dir(f.rootDir)
 		}
 
-		extendedAttributes, err := xattr.List(path)
+		var extendedAttributes []string
+		if isSymlink {
+			extendedAttributes, err = xattr.LList(path)
+		} else {
+			extendedAttributes, err = xattr.List(path)
+		}
 		if err != nil {
 			results <- importer.NewScanError(path, err)
 			continue
@@ -70,7 +77,7 @@ func (f *FSImporter) walkDir_worker(ctx context.Context, jobs <-chan string, res
 		fileinfo.Lusername, fileinfo.Lgroupname = f.lookupIDs(fileinfo.Uid(), fileinfo.Gid())
 
 		var originFile string
-		if fileinfo.Mode()&os.ModeSymlink != 0 {
+		if isSymlink {
 			originFile, err = os.Readlink(path)
 			if err != nil {
 				results <- importer.NewScanError(path, err)
@@ -87,7 +94,13 @@ func (f *FSImporter) walkDir_worker(ctx context.Context, jobs <-chan string, res
 		for _, attr := range extendedAttributes {
 			results <- importer.NewScanXattr(entrypath, attr, objects.AttributeExtended,
 				func() (io.ReadCloser, error) {
-					data, err := xattr.Get(path, attr)
+					var data []byte
+					var err error
+					if isSymlink {
+						data, err = xattr.LGet(path, attr)
+					} else {
+						data, err = xattr.Get(path, attr)
+					}
 					if err != nil {
 						return nil, err
 					}
