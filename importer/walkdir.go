@@ -25,13 +25,13 @@ import (
 	"runtime"
 	"sync"
 
+	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/objects"
-	"github.com/PlakarKorp/kloset/snapshot/importer"
 	"github.com/pkg/xattr"
 )
 
 // Worker pool to handle file scanning in parallel
-func (f *FSImporter) walkDir_worker(ctx context.Context, jobs <-chan string, results chan<- *importer.ScanResult, wg *sync.WaitGroup) {
+func (f *FSImporter) walkDir_worker(ctx context.Context, jobs <-chan string, records chan<- *connectors.Row, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	for {
@@ -51,7 +51,7 @@ func (f *FSImporter) walkDir_worker(ctx context.Context, jobs <-chan string, res
 
 		info, err := os.Lstat(path)
 		if err != nil {
-			results <- importer.NewScanError(path, err)
+			records <- connectors.NewError(path, err)
 			continue
 		}
 
@@ -62,7 +62,7 @@ func (f *FSImporter) walkDir_worker(ctx context.Context, jobs <-chan string, res
 
 		extendedAttributes, err := xattr.LList(path)
 		if err != nil {
-			results <- importer.NewScanError(path, err)
+			records <- connectors.NewError(path, err)
 			continue
 		}
 
@@ -73,19 +73,19 @@ func (f *FSImporter) walkDir_worker(ctx context.Context, jobs <-chan string, res
 		if info.Mode()&os.ModeSymlink != 0 {
 			originFile, err = os.Readlink(path)
 			if err != nil {
-				results <- importer.NewScanError(path, err)
+				records <- connectors.NewError(path, err)
 				continue
 			}
 		}
 
 		entrypath := toslash(path)
 
-		results <- importer.NewScanRecord(entrypath, originFile, fileinfo, extendedAttributes,
+		records <- connectors.NewRecord(entrypath, originFile, fileinfo, extendedAttributes,
 			func() (io.ReadCloser, error) {
 				return os.Open(path)
 			})
 		for _, attr := range extendedAttributes {
-			results <- importer.NewScanXattr(entrypath, attr, objects.AttributeExtended,
+			records <- connectors.NewXattr(entrypath, attr, objects.AttributeExtended,
 				func() (io.ReadCloser, error) {
 					data, err := xattr.LGet(path, attr)
 					if err != nil {
@@ -97,14 +97,14 @@ func (f *FSImporter) walkDir_worker(ctx context.Context, jobs <-chan string, res
 	}
 }
 
-func walkDir_addPrefixDirectories(root string, results chan<- *importer.ScanResult) {
+func walkDir_addPrefixDirectories(root string, records chan<- *connectors.Row) {
 	root = filepath.Dir(root)
 	for {
 		var finfo objects.FileInfo
 
 		sb, err := os.Lstat(root)
 		if err != nil {
-			results <- importer.NewScanError(root, err)
+			records <- connectors.NewError(root, err)
 			finfo = objects.FileInfo{
 				Lname: filepath.Base(root),
 				Lmode: os.ModeDir | 0755,
@@ -113,7 +113,7 @@ func walkDir_addPrefixDirectories(root string, results chan<- *importer.ScanResu
 			finfo = objects.FileInfoFromStat(sb)
 		}
 
-		results <- importer.NewScanRecord(toslash(root), "", finfo, nil, nil)
+		records <- connectors.NewRecord(toslash(root), "", finfo, nil, nil)
 
 		newroot := filepath.Dir(root)
 		if newroot == root { // base case for "/" or "C:\"
@@ -127,6 +127,6 @@ func walkDir_addPrefixDirectories(root string, results chan<- *importer.ScanResu
 			Lname: "/",
 			Lmode: os.ModeDir | 0755,
 		}
-		results <- importer.NewScanRecord("/", "", finfo, nil, nil)
+		records <- connectors.NewRecord("/", "", finfo, nil, nil)
 	}
 }

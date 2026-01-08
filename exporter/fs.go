@@ -18,58 +18,245 @@ package exporter
 
 import (
 	"context"
+	"fmt"
+
+	"golang.org/x/sync/singleflight"
+
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 
+	"github.com/PlakarKorp/kloset/connectors"
+	"github.com/PlakarKorp/kloset/connectors/exporter"
 	"github.com/PlakarKorp/kloset/location"
 	"github.com/PlakarKorp/kloset/objects"
-	"github.com/PlakarKorp/kloset/snapshot/exporter"
+	"golang.org/x/sync/errgroup"
 )
 
 type FSExporter struct {
+	opts    *connectors.Options
 	rootDir string
+
+	hlCreate singleflight.Group // key -> ensures canonical exists, returns canonical abs path
+	hlCanon  sync.Map           // key -> canonical abs path string
+	hlMu     sync.Map           // key -> *sync.Mutex (serialize os.Link per key)
 }
 
 func init() {
 	exporter.Register("fs", location.FLAG_LOCALFS, NewFSExporter)
 }
 
-func NewFSExporter(ctx context.Context, opts *exporter.Options, name string, config map[string]string) (exporter.Exporter, error) {
+func NewFSExporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (exporter.Exporter, error) {
+	location := config["location"]
+	rootDir := strings.TrimPrefix(location, name+"://")
+
 	return &FSExporter{
-		rootDir: strings.TrimPrefix(config["location"], "fs://"),
+		opts:    opts,
+		rootDir: rootDir,
 	}, nil
 }
 
-func (p *FSExporter) Root(ctx context.Context) (string, error) {
-	return p.rootDir, nil
+func (p *FSExporter) Root() string {
+	return p.rootDir
 }
 
-func (p *FSExporter) CreateDirectory(ctx context.Context, pathname string) error {
-	return os.MkdirAll(pathname, 0700)
+func (p *FSExporter) Origin() string {
+	return p.opts.Hostname
 }
 
-func (p *FSExporter) StoreFile(ctx context.Context, pathname string, fp io.Reader, size int64) error {
-	buf := make([]byte, 4<<20) // 4MiB buffer
+func (p *FSExporter) Type() string {
+	return "fs"
+}
 
-	f, err := os.Create(pathname)
-	if err != nil {
-		return err
-	}
-
-	if _, err := io.CopyBuffer(f, fp, buf); err != nil {
-		//logging.Warn("copy failure: %s: %s", pathname, err)
-		f.Close()
-		return err
-	}
-
-	if err := f.Close(); err != nil {
-		//logging.Warn("close failure: %s: %s", pathname, err)
-	}
+func (p *FSExporter) Close(ctx context.Context) error {
 	return nil
 }
 
-func (p *FSExporter) SetPermissions(ctx context.Context, pathname string, fileinfo *objects.FileInfo) error {
+type dirPerm struct {
+	Pathname string
+	Fileinfo objects.FileInfo
+}
+
+func (p *FSExporter) Export(ctx context.Context, rows <-chan *connectors.Row, results chan<- *connectors.Result) error {
+	g, ctx := errgroup.WithContext(ctx)
+	g.SetLimit(p.opts.MaxConcurrency)
+
+	var mu sync.Mutex
+	var dirReady map[string]chan struct{} = make(map[string]chan struct{})
+	var dirPerms []dirPerm = make([]dirPerm, 1024)
+
+	markInflight := func(pathname string) {
+		mu.Lock()
+		dirReady[pathname] = make(chan struct{})
+		mu.Unlock()
+	}
+	markReady := func(pathname string) {
+		mu.Lock()
+		ch := dirReady[pathname]
+		delete(dirReady, pathname)
+		mu.Unlock()
+		close(ch)
+	}
+	waitParent := func(pathname string) {
+		if pathname == "/" {
+			return
+		}
+		mu.Lock()
+		ch, exists := dirReady[filepath.Dir(pathname)]
+		mu.Unlock()
+		if !exists {
+			return
+		}
+		<-ch
+	}
+
+	i := 1
+	for row := range rows {
+		if i%1000 == 0 && ctx.Err() != nil {
+			break
+		}
+		if row.Record == nil {
+			results <- row.Error.Ok()
+			continue
+		}
+
+		rec := row.Record
+		if rec.FileInfo.IsDir() {
+			markInflight(rec.Pathname)
+			g.Go(func() error {
+				waitParent(rec.Pathname)
+				if err := p.directory(rec.Pathname); err != nil {
+					return err
+				}
+				mu.Lock()
+				dirPerms = append(dirPerms, dirPerm{
+					Pathname: rec.Pathname,
+					Fileinfo: rec.FileInfo,
+				})
+				mu.Unlock()
+				markReady(rec.Pathname)
+				results <- rec.Ok()
+				return nil
+			})
+			continue
+		}
+
+		g.Go(func() error {
+			waitParent(rec.Pathname)
+
+			var err error
+			if rec.Target != "" {
+				err = p.symlink(rec.Target, rec.Pathname)
+			} else {
+				err = p.file(rec.Pathname, rec.Reader, rec.FileInfo)
+			}
+			if err == nil {
+				err = p.permissions(rec.Pathname, rec.FileInfo)
+			}
+
+			if err != nil {
+				results <- rec.Error(err)
+			} else {
+				results <- rec.Ok()
+			}
+			rec.Close()
+			return nil
+		})
+	}
+	err := g.Wait()
+
+	for i := len(dirPerms); i > 0; i-- {
+		if err := p.permissions(dirPerms[i-1].Pathname, dirPerms[i-1].Fileinfo); err != nil {
+			return err
+		}
+	}
+
+	return err
+}
+
+func (p *FSExporter) directory(pathname string) error {
+	return os.Mkdir(filepath.Join(p.rootDir, pathname), 0700)
+}
+
+func (p *FSExporter) symlink(pathname string, target string) error {
+	return os.Symlink(target, filepath.Join(p.rootDir, pathname))
+}
+
+func (p *FSExporter) hardlink(pathname string, fp io.Reader, fileinfo objects.FileInfo) error {
+	key := fmt.Sprintf("%d:%d", fileinfo.Dev(), fileinfo.Ino())
+
+	v, err, _ := p.hlCreate.Do(key, func() (any, error) {
+		if v, ok := p.hlCanon.Load(key); ok {
+			return v.(string), nil
+		}
+		if err := p.writeAtomic(pathname, fp); err != nil {
+			return "", err
+		}
+		p.hlCanon.Store(key, filepath.Join(p.rootDir, pathname))
+		return pathname, nil
+	})
+	if err != nil {
+		return err
+	}
+	canonPath := v.(string)
+
+	// If we are not the canonical path, create a hardlink
+	pathname = filepath.Join(p.rootDir, pathname)
+	if canonPath != pathname {
+		if err := os.Link(canonPath, pathname); err != nil {
+			return err
+		}
+	}
+
+	return nil
+
+}
+
+func (p *FSExporter) file(pathname string, fp io.Reader, fileinfo objects.FileInfo) error {
+	if fileinfo.Nlink() > 1 {
+		return p.hardlink(pathname, fp, fileinfo)
+	}
+	return p.writeAtomic(pathname, fp)
+}
+
+func (p *FSExporter) writeAtomic(pathname string, fp io.Reader) error {
+	pathname = filepath.Join(p.rootDir, pathname)
+	parent := filepath.Dir(pathname)
+
+	tmp, err := os.CreateTemp(parent, ".plakar-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+
+	ok := false
+	defer func() {
+		_ = tmp.Close()
+		if !ok {
+			_ = os.Remove(tmpName)
+		}
+	}()
+
+	if _, err := io.Copy(tmp, fp); err != nil {
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+
+	if err := os.Rename(tmpName, pathname); err != nil {
+		return err
+	}
+
+	ok = true
+	return nil
+}
+
+func (p *FSExporter) permissions(pathname string, fileinfo objects.FileInfo) error {
+	pathname = filepath.Join(p.rootDir, pathname)
+
 	if fileinfo.Mode()&os.ModeSymlink == 0 {
 		// Preserve all permission bits including setuid (04000), setgid (02000), and sticky bit (01000)
 		// Use the full mode which includes these special bits, not just Mode().Perm()
@@ -91,17 +278,5 @@ func (p *FSExporter) SetPermissions(ctx context.Context, pathname string, filein
 	if err := Lutimes(pathname, fileinfo.ModTime(), fileinfo.ModTime()); err != nil {
 		return err
 	}
-	return nil
-}
-
-func (p *FSExporter) CreateLink(ctx context.Context, oldname string, newname string, ltype exporter.LinkType) error {
-	if ltype == exporter.HARDLINK {
-		return os.Link(oldname, newname)
-	}
-
-	return os.Symlink(oldname, newname)
-}
-
-func (p *FSExporter) Close(ctx context.Context) error {
 	return nil
 }
