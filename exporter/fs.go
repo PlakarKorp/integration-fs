@@ -79,7 +79,7 @@ type dirPerm struct {
 	Fileinfo objects.FileInfo
 }
 
-func (p *FSExporter) Export(ctx context.Context, rows <-chan *connectors.Row, results chan<- *connectors.Result) error {
+func (p *FSExporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
 	g, ctx := errgroup.WithContext(ctx)
 	g.SetLimit(p.opts.MaxConcurrency)
 
@@ -113,55 +113,57 @@ func (p *FSExporter) Export(ctx context.Context, rows <-chan *connectors.Row, re
 	}
 
 	i := 1
-	for row := range rows {
+	for record := range records {
 		if i%1000 == 0 && ctx.Err() != nil {
 			break
 		}
-		if row.Record == nil {
-			results <- row.Error.Ok()
+		if record.Err != nil {
+			results <- record.Ok()
 			continue
 		}
 
-		rec := row.Record
-		if rec.FileInfo.IsDir() {
-			markInflight(rec.Pathname)
+		if record.FileInfo.IsDir() {
+			markInflight(record.Pathname)
 			g.Go(func() error {
-				waitParent(rec.Pathname)
-				if err := p.directory(rec.Pathname); err != nil {
+				waitParent(record.Pathname)
+				if err := p.directory(record.Pathname); err != nil {
 					return err
 				}
+
+				// later patching
 				mu.Lock()
 				dirPerms = append(dirPerms, dirPerm{
-					Pathname: rec.Pathname,
-					Fileinfo: rec.FileInfo,
+					Pathname: record.Pathname,
+					Fileinfo: record.FileInfo,
 				})
 				mu.Unlock()
-				markReady(rec.Pathname)
-				results <- rec.Ok()
+
+				markReady(record.Pathname)
+				results <- record.Ok()
 				return nil
 			})
 			continue
 		}
 
 		g.Go(func() error {
-			waitParent(rec.Pathname)
+			waitParent(record.Pathname)
 
 			var err error
-			if rec.Target != "" {
-				err = p.symlink(rec.Target, rec.Pathname)
+			if record.Target != "" {
+				err = p.symlink(record.Target, record.Pathname)
 			} else {
-				err = p.file(rec.Pathname, rec.Reader, rec.FileInfo)
+				err = p.file(record.Pathname, record.Reader, record.FileInfo)
 			}
 			if err == nil {
-				err = p.permissions(rec.Pathname, rec.FileInfo)
+				err = p.permissions(record.Pathname, record.FileInfo)
 			}
 
 			if err != nil {
-				results <- rec.Error(err)
+				results <- record.Error(err)
 			} else {
-				results <- rec.Ok()
+				results <- record.Ok()
 			}
-			rec.Close()
+			record.Close()
 			return nil
 		})
 	}
@@ -211,7 +213,6 @@ func (p *FSExporter) hardlink(pathname string, fp io.Reader, fileinfo objects.Fi
 	}
 
 	return nil
-
 }
 
 func (p *FSExporter) file(pathname string, fp io.Reader, fileinfo objects.FileInfo) error {

@@ -31,7 +31,7 @@ import (
 )
 
 // Worker pool to handle file scanning in parallel
-func (f *FSImporter) walkDir_worker(ctx context.Context, jobs <-chan string, records chan<- *connectors.Row, wg *sync.WaitGroup) {
+func (f *FSImporter) walkDir_worker(ctx context.Context, jobs <-chan string, records chan<- *connectors.Record, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	for {
@@ -97,7 +97,7 @@ func (f *FSImporter) walkDir_worker(ctx context.Context, jobs <-chan string, rec
 	}
 }
 
-func walkDir_addPrefixDirectories(root string, records chan<- *connectors.Row) {
+func walkDir_addPrefixDirectories(root string, records chan<- *connectors.Record) {
 	root = filepath.Dir(root)
 	for {
 		var finfo objects.FileInfo

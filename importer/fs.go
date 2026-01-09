@@ -98,7 +98,7 @@ func (p *FSImporter) Root() string {
 	return toslash(p.rootDir)
 }
 
-func (p *FSImporter) Import(ctx context.Context, records chan<- *connectors.Row, results <-chan *connectors.Result) error {
+func (p *FSImporter) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
 	go func() {
 		for _ = range results {
 		}
@@ -107,7 +107,7 @@ func (p *FSImporter) Import(ctx context.Context, records chan<- *connectors.Row,
 	return nil
 }
 
-func (f *FSImporter) walkDir_walker(ctx context.Context, records chan<- *connectors.Row, numWorkers int) {
+func (f *FSImporter) walkDir_walker(ctx context.Context, records chan<- *connectors.Record, numWorkers int) {
 	jobs := make(chan string, numWorkers*4) // Buffered channel to feed paths to workers
 	var wg sync.WaitGroup
 	for range numWorkers {
