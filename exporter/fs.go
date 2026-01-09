@@ -70,6 +70,10 @@ func (p *FSExporter) Type() string {
 	return "fs"
 }
 
+func (p *FSExporter) Ping(ctx context.Context) error {
+	return nil
+}
+
 func (p *FSExporter) Close(ctx context.Context) error {
 	return nil
 }
@@ -80,6 +84,7 @@ type dirPerm struct {
 }
 
 func (p *FSExporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+	defer close(results)
 	g, ctx := errgroup.WithContext(ctx)
 	g.SetLimit(p.opts.MaxConcurrency)
 

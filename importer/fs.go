@@ -98,12 +98,27 @@ func (p *FSImporter) Root() string {
 	return toslash(p.rootDir)
 }
 
+func (p *FSImporter) Ping(ctx context.Context) error {
+	return nil
+}
+
+func (p *FSImporter) Close(ctx context.Context) error {
+	return nil
+}
+
 func (p *FSImporter) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+	done := make(chan struct{})
 	go func() {
-		for _ = range results {
+		// drain
+		for range results {
 		}
+		close(done)
 	}()
-	go p.walkDir_walker(ctx, records, p.opts.MaxConcurrency)
+
+	p.walkDir_walker(ctx, records, p.opts.MaxConcurrency)
+
+	<-done
+
 	return nil
 }
 
@@ -219,10 +234,6 @@ func realpathFollow(path string) (resolved string, dev uint64, err error) {
 	}
 
 	return path, dev, nil
-}
-
-func (p *FSImporter) Close(ctx context.Context) error {
-	return nil
 }
 
 // convert paths to the internal format.  For unix nothing changes,
