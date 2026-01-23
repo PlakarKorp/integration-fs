@@ -62,8 +62,8 @@ func (s *Store) Type() string {
 	return "fs"
 }
 
-func (s *Store) Mode() storage.Mode {
-	return storage.ModeRead | storage.ModeWrite
+func (s *Store) Mode(context.Context) (storage.Mode, error) {
+	return storage.ModeRead | storage.ModeWrite, nil
 }
 
 func (s *Store) Flags() location.Flags {
