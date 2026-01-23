@@ -168,9 +168,9 @@ func (s *Store) List(ctx context.Context, res storage.StorageResource) ([]object
 	switch res {
 	case storage.StorageResourcePackfile:
 		return s.packfiles.List()
-	case storage.StorageResourceStatefile:
+	case storage.StorageResourceState:
 		return s.states.List()
-	case storage.StorageResourceLockfile:
+	case storage.StorageResourceLock:
 		return s.getLocks(ctx)
 	}
 
@@ -181,9 +181,9 @@ func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac object
 	switch res {
 	case storage.StorageResourcePackfile:
 		return s.packfiles.Put(mac, rd)
-	case storage.StorageResourceStatefile:
+	case storage.StorageResourceState:
 		return s.states.Put(mac, rd)
-	case storage.StorageResourceLockfile:
+	case storage.StorageResourceLock:
 		return s.putLock(ctx, mac, rd)
 	}
 
@@ -209,9 +209,9 @@ func (s *Store) Get(ctx context.Context, res storage.StorageResource, mac object
 		}
 
 		return fp, err
-	case storage.StorageResourceStatefile:
+	case storage.StorageResourceState:
 		return s.states.Get(mac)
-	case storage.StorageResourceLockfile:
+	case storage.StorageResourceLock:
 		return s.getLock(ctx, mac)
 	}
 
@@ -222,9 +222,9 @@ func (s *Store) Delete(ctx context.Context, res storage.StorageResource, mac obj
 	switch res {
 	case storage.StorageResourcePackfile:
 		return s.packfiles.Remove(mac)
-	case storage.StorageResourceStatefile:
+	case storage.StorageResourceState:
 		return s.states.Remove(mac)
-	case storage.StorageResourceLockfile:
+	case storage.StorageResourceLock:
 		return s.deleteLock(ctx, mac)
 	}
 
