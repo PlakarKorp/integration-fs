@@ -36,11 +36,6 @@ func (f *FSImporter) walkDir_worker(jobs <-chan file, records chan<- *connectors
 	defer wg.Done()
 
 	for p := range jobs {
-		// fixup the rootdir if it happened to be a file
-		if !p.info.IsDir() && p.path == f.rootDir {
-			f.rootDir = filepath.Dir(f.rootDir)
-		}
-
 		extendedAttributes, err := xattr.LList(p.path)
 		if err != nil {
 			errString := err.Error()
