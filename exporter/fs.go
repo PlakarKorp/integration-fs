@@ -52,7 +52,7 @@ func NewFSExporter(ctx context.Context, opts *connectors.Options, name string, c
 
 	absRoot, err := filepath.Abs(rootDir)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to absolutify root: %w", err)
 	}
 
 	return &FSExporter{
@@ -174,21 +174,6 @@ loop:
 }
 
 func (p *FSExporter) symlink(record *connectors.Record, pathname string) error {
-	// Validate that the symlink target, when resolved relative to its location,
-	// stays within the restore root.  This prevents a malicious archive from
-	// planting a symlink whose target escapes the root and then writing through
-	// it with a subsequent entry.
-	target := record.Target
-	var resolved string
-	if filepath.IsAbs(target) {
-		resolved = filepath.Clean(target)
-	} else {
-		resolved = filepath.Join(filepath.Dir(pathname), target)
-	}
-	if !isContained(p.rootDir, resolved) {
-		return fmt.Errorf("symlink target %q escapes restore root", target)
-	}
-
 	if err := os.Symlink(record.Target, pathname); err != nil {
 		return err
 	}
